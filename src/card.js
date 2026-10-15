@@ -12,6 +12,7 @@ class WetterwarnungenCard extends HTMLElement {
     this._expanded = false;
     this._pending = false;
     this._error = '';
+    this._technicalError = '';
     this.shadowRoot.addEventListener('click', (event) => {
       const button = event.target.closest('[data-action]');
       if (!button) return;
@@ -34,6 +35,7 @@ class WetterwarnungenCard extends HTMLElement {
     this._config = normalizeConfig(value);
     this._snapshot = undefined;
     this._error = '';
+    this._technicalError = '';
     this._expanded = false;
     this._stop();
     this._render();
@@ -73,19 +75,24 @@ class WetterwarnungenCard extends HTMLElement {
       const unsubscribe = await this._hass.connection.subscribeMessage((message) => {
         if (generation !== this._generation || !this.isConnected) return;
         try {
-          if (message.error) throw new Error('CAP-Daten konnten nicht ausgewertet werden.');
+          if (message.error) {
+            this._technicalError = String(typeof message.error === 'string' ? message.error : message.error.message || JSON.stringify(message.error)).slice(0, 1500);
+            throw new Error('CAP-Daten konnten nicht ausgewertet werden.');
+          }
           const snapshot = typeof message.result === 'string' ? JSON.parse(message.result) : message.result;
           if (snapshot?.schema !== 1 || !Array.isArray(snapshot.incidents)) throw new Error('Unerwartetes Datenformat.');
           this._snapshot = snapshot;
           this._error = '';
+          this._technicalError = '';
         } catch (error) { this._error = error.message || 'Daten konnten nicht gelesen werden.'; }
         this._render();
-      }, { type: 'render_template', template: SOURCE_TEMPLATE, variables: { card: this._config }, report_errors: true });
+      }, { type: 'render_template', template: SOURCE_TEMPLATE, variables: { card: { ...this._config, region_pattern: regionPattern(this._config.region_match) } }, report_errors: true });
       if (generation !== this._generation || !this.isConnected) await unsubscribe();
       else this._unsubscribe = unsubscribe;
-    } catch {
+    } catch (error) {
       if (generation === this._generation) {
         this._error = 'Verbindung zur Datenquelle fehlgeschlagen.';
+        this._technicalError = String(error?.message || error?.code || error || '').slice(0, 1500);
         this._render();
       }
     } finally { if (generation === this._generation) this._pending = false; }
@@ -144,7 +151,7 @@ class WetterwarnungenCard extends HTMLElement {
     }
     this.shadowRoot.innerHTML = `<style>${CARD_CSS}</style><ha-card data-tone="${tone}">
       <header><div><h2>${escapeHTML(c.title)}</h2><div class="region">${escapeHTML(c.region)} · ${escapeHTML(c.provider_label)}</div></div>${icon(model?.clear ? 'mdi:shield-check-outline' : model?.records.length && !model.uncertain ? 'mdi:shield-alert-outline' : 'mdi:shield-outline', 'class="header-icon"')}</header>
-      <main aria-live="polite">${content}</main>
+      <main aria-live="polite">${content}${this._error && this._technicalError ? `<details class="diagnostics"><summary>Fehlerdetails</summary><p class="full-text">${escapeHTML(this._technicalError)}</p></details>` : ''}</main>
       <footer><div class="updated" title="${escapeHTML(c.time_zone)}">${icon('mdi:clock-outline')}<span>${model ? escapeHTML(formatStamp(model.stamp, c.time_zone)) : 'Abruf wird geprüft'}</span></div>
         ${model ? `<button data-action="toggle-details" aria-expanded="${this._expanded}" aria-controls="warning-details">${this._expanded ? 'Schliessen' : 'Details'}${icon(this._expanded ? 'mdi:chevron-up' : 'mdi:chevron-right')}</button>` : ''}
       </footer>

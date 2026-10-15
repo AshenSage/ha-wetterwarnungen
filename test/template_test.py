@@ -5,7 +5,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from jinja2.sandbox import SandboxedEnvironment
+from jinja2.sandbox import ImmutableSandboxedEnvironment
 
 
 class States:
@@ -23,7 +23,7 @@ class States:
 
 def render(devices, entities, card=None):
     states = States(entities)
-    env = SandboxedEnvironment(extensions=['jinja2.ext.do'])
+    env = ImmutableSandboxedEnvironment(extensions=['jinja2.ext.do'])
 
     def as_function(macro):
         def wrapper(*args):
@@ -32,7 +32,8 @@ def render(devices, entities, card=None):
             return result[0]
         return wrapper
 
-    env.filters.update(as_function=as_function, regex_escape=re.escape,
+    # Only register custom filters actually provided by Home Assistant.
+    env.filters.update(as_function=as_function,
         regex_search=lambda s, p: re.search(p, s) is not None,
         to_json=lambda v: json.dumps(v, ensure_ascii=False))
     ids = {e.entity_id: e for e in entities}
@@ -44,6 +45,8 @@ def render(devices, entities, card=None):
         now=lambda: datetime.now(timezone.utc))
     config = dict(count_entity='sensor.cap_alerts_wmo_alert_count', updated_entity='sensor.cap_alerts_wmo_last_updated', device_id='', region_match='sumadija')
     config.update(card or {})
+    normalized = config['region_match'].lower().replace('š', 's').replace('шумадија', 'sumadija').strip()
+    config['region_pattern'] = '(^|[^a-z])' + re.escape(normalized) + '([^a-z]|$)'
     return json.loads(env.from_string(Path('src/source.jinja').read_text()).render(card=config))
 
 
@@ -86,6 +89,11 @@ class DiscoveryTests(unittest.TestCase):
         values = [sensor('sensor.a', 'a', provider='wmo', incident_platform_version=1, area_desc='Šumadija'),
             sensor('sensor.b', 'b', provider='wmo', incident_platform_version=1, area_desc='Šumadija')]
         self.assertEqual(render({'a': {}, 'b': {}}, values, {'device_id': 'b'})['device'], 'b')
+
+    def test_region_metacharacters_remain_literal(self):
+        values = [sensor('sensor.a', 'a', provider='wmo', incident_platform_version=1, area_desc='A.B'),
+            sensor('sensor.b', 'b', provider='wmo', incident_platform_version=1, area_desc='AXB')]
+        self.assertEqual(render({'a': {}, 'b': {}}, values, {'region_match': 'A.B'})['device'], 'a')
 
 
 if __name__ == '__main__':

@@ -33,13 +33,15 @@ await page.evaluate(() => {
     const holder = document.createElement('div'); holder.innerHTML = `<div class="label">${label}</div>`;
     const card = document.createElement('wetterwarnungen-card');
     card.setConfig({ type: 'custom:wetterwarnungen-card' });
-    const connection = { connected: true, async subscribeMessage(callback, message) { window.calls++; card.push = callback; queueMicrotask(() => callback({ result: JSON.stringify(snap(incidents, extra)) })); return () => { window.unsubscribes++; }; } };
+    const connection = { connected: true, async subscribeMessage(callback, message) { window.calls++; card.subscription = message; card.push = callback; queueMicrotask(() => callback({ result: JSON.stringify(snap(incidents, extra)) })); return () => { window.unsubscribes++; }; } };
     card.hass = { connected: true, connection };
     holder.append(card); document.getElementById('cards').append(holder); window.cards.push(card);
   }
 });
 await page.waitForFunction(() => window.cards.every((c) => c._snapshot));
 assert.equal(await page.evaluate(() => calls), 3);
+assert.equal(await page.evaluate(() => cards[0].subscription.variables.card.region_pattern), '(^|[^a-z])sumadija([^a-z]|$)');
+assert.equal(await page.evaluate(() => cards[0].subscription.template.includes('| regex_escape')), false);
 for (const width of [320, 390, 460, 768]) {
   await page.setViewportSize({ width, height: 1100 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `page overflow at ${width}`);
@@ -84,6 +86,14 @@ await page.evaluate(async () => {
   await Promise.resolve(); await Promise.resolve();
 });
 assert.equal(await page.evaluate(() => pendingUnsubscribe), 1);
+// Preserve Home Assistant's actual template error, with safe rendering.
+await page.evaluate(() => cards[1].push({ error: 'No filter named unsupported <img src=x onerror="window.injected=true">' }));
+assert.match(await second.locator('main').innerText(), /Fehlerdetails/);
+await second.locator('summary').click();
+assert.match(await second.locator('.diagnostics').innerText(), /No filter named unsupported/);
+assert.equal(await second.locator('img').count(), 0);
+await page.evaluate(() => cards[1].push({ result: JSON.stringify(snapshot()) }));
+assert.equal(await second.locator('.diagnostics').count(), 0);
 assert.deepEqual(errors, []);
 console.log('Browser: 320/390/460/768 px, details, XSS, disconnect, unsubscribe, invalid schema, aging and pending cleanup passed.');
 await browser.close();

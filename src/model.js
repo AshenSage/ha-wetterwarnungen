@@ -36,10 +36,13 @@ export function awareTimestamp(value) {
   return Number.isFinite(ts) ? ts : null;
 }
 
+const normalizeRegion = (s) => String(s ?? '').toLowerCase().replaceAll('š', 's').replaceAll('шумадија', 'sumadija').trim();
+export function regionPattern(target) {
+  const escaped = normalizeRegion(target).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return `(^|[^a-z])${escaped}([^a-z]|$)`;
+}
 export function inRegion(value, target) {
-  const normalize = (s) => String(s ?? '').toLowerCase().replaceAll('š', 's').replaceAll('шумадија', 'sumadija').trim();
-  const escaped = normalize(target).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(^|[^a-z])${escaped}([^a-z]|$)`).test(normalize(value));
+  return new RegExp(regionPattern(target)).test(normalizeRegion(value));
 }
 
 export function alertLevel(a) {

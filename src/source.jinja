@@ -16,8 +16,8 @@
 {% macro region_macro(value, returns) -%}
   {% set value = value | default('', true) | string | lower | trim
     | replace('š', 's') | replace('шумадија', 'sumadija') %}
-  {% set target = card.region_match | lower | trim | replace('š', 's') | replace('шумадија', 'sumadija') %}
-  {% do returns(value | regex_search('(^|[^a-z])' ~ (target | regex_escape) ~ '([^a-z]|$)')) %}
+  {# Literal region name is escaped by JavaScript; HA has no regex_escape filter. #}
+  {% do returns(value | regex_search(card.region_pattern)) %}
 {%- endmacro %}
 {% set in_region = region_macro | as_function %}
 {% set source = namespace(devices=[], regional=[], device=none, counts=[], stamps=[], incidents=[], ids=[], diagnostics=[]) %}
