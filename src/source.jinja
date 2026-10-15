@@ -1,0 +1,81 @@
+{# Read-only snapshot. Discovery follows the existing CAP Alerts 0.6.1 card. #}
+{% set preferred_count = card.count_entity %}
+{% set preferred_stamp = card.updated_entity %}
+{% set preferred_device = card.device_id or device_id(preferred_count) %}
+{% set weather_providers = ['wmo', 'meteoalarm'] %}
+{% set integration_ids = integration_entities('cap_alerts') | list %}
+{% set preferred_ids = device_entities(preferred_device) | list if preferred_device else [] %}
+{% set discovery = namespace(ids=(integration_ids + preferred_ids) | unique | list) %}
+{% for s in states.sensor %}
+  {% if s.attributes.get('provider') in weather_providers
+    and s.attributes.get('incident_platform_version') is not none
+    and s.entity_id not in discovery.ids %}
+    {% set discovery.ids = discovery.ids + [s.entity_id] %}
+  {% endif %}
+{% endfor %}
+{% macro region_macro(value, returns) -%}
+  {% set value = value | default('', true) | string | lower | trim
+    | replace('š', 's') | replace('шумадија', 'sumadija') %}
+  {% set target = card.region_match | lower | trim | replace('š', 's') | replace('шумадија', 'sumadija') %}
+  {% do returns(value | regex_search('(^|[^a-z])' ~ (target | regex_escape) ~ '([^a-z]|$)')) %}
+{%- endmacro %}
+{% set in_region = region_macro | as_function %}
+{% set source = namespace(devices=[], regional=[], device=none, counts=[], stamps=[], incidents=[], ids=[], diagnostics=[]) %}
+{% for e in discovery.ids %}
+  {% set d = device_id(e) %}
+  {% set model = device_attr(d, 'model') | default('', true) | string | lower | trim if d else '' %}
+  {% set is_warning = state_attr(e, 'provider') in weather_providers and state_attr(e, 'incident_platform_version') is not none %}
+  {% if d and (d == preferred_device or model in weather_providers or is_warning) %}
+    {% if d not in source.devices %}{% set source.devices = source.devices + [d] %}{% endif %}
+    {% if is_warning and in_region(state_attr(e, 'area_desc')) and d not in source.regional %}
+      {% set source.regional = source.regional + [d] %}
+    {% endif %}
+  {% endif %}
+{% endfor %}
+{% if preferred_device in source.devices %}{% set source.device = preferred_device %}
+{% elif source.regional | count == 1 %}{% set source.device = source.regional[0] %}
+{% elif source.devices | count == 1 %}{% set source.device = source.devices[0] %}{% endif %}
+{% if source.device %}
+  {% set source.ids = (device_entities(source.device) + discovery.ids) | unique | list %}
+  {% for e in source.ids if device_id(e) == source.device and e.startswith('sensor.') %}
+    {% set s = states[e] %}
+    {% if s is not none %}
+      {% set a = s.attributes %}
+      {% if a.get('provider') in weather_providers and a.get('incident_platform_version') is not none %}
+        {% set source.incidents = source.incidents + [{'entity_id': e, 'name': s.name, 'state': s.state, 'attributes': a}] %}
+      {% elif a.get('device_class') == 'timestamp' %}
+        {% set source.stamps = source.stamps + [e] %}
+      {% elif a.get('active') is not none and a.get('upcoming') is not none %}
+        {% set source.counts = source.counts + [e] %}
+      {% endif %}
+    {% endif %}
+  {% endfor %}
+{% else %}
+  {# Retain possible warnings when source assignment is ambiguous. #}
+  {% for e in discovery.ids if e.startswith('sensor.') %}
+    {% set s = states[e] %}
+    {% if s is not none and s.attributes.get('provider') in weather_providers and s.attributes.get('incident_platform_version') is not none %}
+      {% set source.incidents = source.incidents + [{'entity_id': e, 'name': s.name, 'state': s.state, 'attributes': s.attributes}] %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+{% set stamp_entity = preferred_stamp if source.device and preferred_stamp in source.ids and device_id(preferred_stamp) == source.device
+  else source.stamps[0] if source.stamps | count == 1 else none %}
+{% set count_entity = preferred_count if source.device and preferred_count in source.ids and device_id(preferred_count) == source.device
+  else source.counts[0] if source.counts | count == 1 else none %}
+{% for e in (source.ids + discovery.ids) | unique | sort if e.startswith('sensor.') %}
+  {% set source.diagnostics = source.diagnostics + [{'entity_id': e, 'state': states(e)}] %}
+{% endfor %}
+{{ {
+  'schema': 1,
+  'rendered_at': now().isoformat(),
+  'device': source.device,
+  'device_count': source.devices | count,
+  'integration_count': integration_ids | count,
+  'count_entity': count_entity,
+  'stamp_entity': stamp_entity,
+  'count': states(count_entity) if count_entity else none,
+  'stamp': states(stamp_entity) if stamp_entity else none,
+  'incidents': source.incidents,
+  'diagnostics': source.diagnostics
+} | to_json }}

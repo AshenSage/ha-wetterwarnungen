@@ -1,0 +1,7 @@
+{
+  "name": "Wetterwarnungen – kompakte CAP-Karte",
+  "filename": "ha-wetterwarnungen.js",
+  "content_in_root": true,
+  "render_readme": true,
+  "homeassistant": "2026.10.0"
+}

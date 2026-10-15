@@ -1,0 +1,13 @@
+type: custom:wetterwarnungen-card
+title: Wetterwarnungen
+region: Šumadija
+region_match: sumadija
+provider_label: RHMZ
+count_entity: sensor.cap_alerts_wmo_alert_count
+updated_entity: sensor.cap_alerts_wmo_last_updated
+time_zone: Europe/Belgrade
+max_age_minutes: 30
+max_visible: 2
+grid_options:
+  columns: 12
+  rows: auto

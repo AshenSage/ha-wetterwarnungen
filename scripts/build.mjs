@@ -1,0 +1,11 @@
+import { readFile, writeFile } from 'node:fs/promises';
+const root = new URL('../', import.meta.url);
+const read = (path) => readFile(new URL(path, root), 'utf8');
+const pkg = JSON.parse(await read('package.json'));
+const model = (await read('src/model.js')).replace(/^export /gm, '');
+const card = await read('src/card.js');
+const template = await read('src/source.jinja');
+const css = await read('src/card.css');
+const result = `/* ha-wetterwarnungen v${pkg.version} | MIT | AshenSage */\n(() => {\n"use strict";\nconst VERSION = ${JSON.stringify(pkg.version)};\nconst SOURCE_TEMPLATE = ${JSON.stringify(template)};\nconst CARD_CSS = ${JSON.stringify(css)};\n${model}\n${card}\n})();\n`;
+await writeFile(new URL('ha-wetterwarnungen.js', root), result);
+console.log(`Built ha-wetterwarnungen.js v${pkg.version} (${Buffer.byteLength(result)} bytes)`);

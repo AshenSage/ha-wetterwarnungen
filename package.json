@@ -1,0 +1,11 @@
+{
+  "name": "ha-wetterwarnungen",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "npm run build && node --check ha-wetterwarnungen.js && npm test"
+  }
+}
